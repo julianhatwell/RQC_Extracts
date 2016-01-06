@@ -21,8 +21,6 @@ INNER JOIN ods_profilestudent ops
 	ON oe.contactId = ops.contactId
 INNER JOIN ods_term ot
 	ON omi.termId = ot.termId
-	AND ot.endDate >= '2015-01-01'
-	AND ot.startDate <= '2015-12-15'
 LEFT OUTER JOIN ods_acadorg oao
 	ON ot.orgId = oao.orgId
 WHERE ocm.bridgingModule = '1'

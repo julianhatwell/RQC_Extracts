@@ -1,24 +1,46 @@
 # This file simply calls the long processes and outputs the raw files. 
-# All the processing code is in the source file:
+# All the processing code is in the source file
+
+# Location of source file with the report code
+fileLoc <- "I:\\04.Projects\\2016\\RQC_Reports\\"
+
+# utilities file
+source(paste0(fileLoc, "Utilities.R"))
+
+# PARAMETERS
+# report parameters
+thisReport <- "Annual_Report"
+thisReport2 <- "Waiver_Report"
+currentYear <- 2015
+courseStruct <- c("Full Time", "Part Time")
 
 # Locate and run source file
-fileLoc <- "I:\\04.Projects\\2015\\RQC Annual Report\\"
-source(paste0(fileLoc, "RQC_Annual_Report_Functions.R"))
+source(pathTo("RQC_Report_Functions.R"))
 
-# Run the code to create separate objects for PT and FT
-# initialise the output files and save
-FT <- B11_Generate("Full Time")
-if (file.exists(KHEA_Annual_Report_File)) file.remove(KHEA_Annual_Report_File)
-write.csv(FT, KHEA_Annual_Report_File, row.names = FALSE)
+# Run the code, initialise the output files and save
+# Separately for FT and PT
+for (cs in courseStruct) {
+  Run_and_save(cs, thisReport, B11_Generate)
+  Run_and_save(cs, thisReport2, B11_Waivers)
+}
 
-PT <- B11_Generate("Part Time")
-if (file.exists(KHEI_Annual_Report_File)) file.remove(KHEI_Annual_Report_File)
-write.csv(PT, KHEI_Annual_Report_File, row.names = FALSE)
-
-FT_WV <- B11_Waivers("Full Time")
-if (file.exists(KHEA_Waiver_File)) file.remove(KHEA_Waiver_File)
-write.csv(FT_WV, KHEA_Waiver_File, row.names = FALSE)
-
-PT_WV <- B11_Waivers("Part Time")
-if (file.exists(KHEI_Waiver_File)) file.remove(KHEI_Waiver_File)
-write.csv(PT_WV, KHEI_Waiver_File, row.names = FALSE)
+# Manual versions!
+# FT <- B11_Generate("Full Time")
+# KHEA_Annual_Report_File <- pathTo("KHEA_Annual_Report.csv")
+# fileInit(KHEA_Annual_Report_File)
+# write.csv(FT, KHEA_Annual_Report_File, row.names = FALSE)
+# 
+# PT <- B11_Generate("Part Time")
+# KHEI_Annual_Report_File <- pathTo("KHEI_Annual_Report.csv")
+# fileInit(KHEI_Annual_Report_File)
+# write.csv(PT, KHEI_Annual_Report_File, row.names = FALSE)
+# 
+# FT_WV <- B11_Waivers("Full Time")
+# KHEA_Waiver_File <- pathTo("KHEA_Waiver_Report.csv")
+# fileInit(KHEA_Waiver_File)
+# write.csv(FT_WV, KHEA_Waiver_File, row.names = FALSE)
+# 
+# PT_WV <- B11_Waivers("Part Time")
+# KHEI_Waiver_File <- pathTo("KHEI_Waiver_Report.csv")
+# fileInit(KHEI_Waiver_File)
+# write.csv(PT_WV, KHEI_Waiver_File, row.names = FALSE)

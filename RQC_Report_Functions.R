@@ -3,15 +3,8 @@ library(dplyr)
 library(lubridate)
 library(data.table)
 
-# PARAMETERS
-# Current Year parameter
-CurrentYear <- 2015
-
-# Location of source, mapping and output files
-fileLoc <- "I:\\04.Projects\\2015\\RQC Annual Report\\"
-
 # file names
-pathTo <- function(f) { paste0(fileLoc, f) }
+# path should come from the calling file
 Intake_Rep_File <- pathTo("IntakeReport.csv")
 IC_File <- pathTo("NRIC_Fin.csv")
 KHEA_PermittedCourses_File <- pathTo("KHEA Courses 271115.xlsx")
@@ -19,53 +12,53 @@ KHEI_PermittedCourses_File <- pathTo("KHEI Courses 271115.xlsx")
 KHEA_CourseMapping_File <- pathTo("KHEA CourseMapping.xlsx")
 KHEI_CourseMapping_File <- pathTo("KHEI CourseMapping.xlsx")
 NationalityMapping_File <- pathTo("NationalityMapping.xlsx")
-KHEA_Annual_Report_File <- pathTo("KHEA_Annual_Report_Grads.csv")
-KHEI_Annual_Report_File <- pathTo("KHEI_Annual_Report_Grads.csv")
 KHEA_CourseFees_File <- pathTo("KHEA Sales Line Amount.csv")
 KHEI_CourseFees_File <- pathTo("KHEI Sales Line Amount.csv")
 HighestQuals_File <- pathTo("HighestQuals.csv")
 
 # Waivers Report files
 Waivers_File <- pathTo("waivers.csv")
-KHEA_Waiver_File <- pathTo("KHEA_Waiver_Report.csv")
-KHEI_Waiver_File <- pathTo("KHEI_Waiver_Report.csv")
 
 # AUTOMATION CODE
-# read in the data files and do any data cleaning
-KSS <- read.csv(Intake_Rep_File, na.strings = "", stringsAsFactors = FALSE) %>%
-  filter(!program %in% c("Study Tour", "English Experience Program", "Degree Experience Program") &
-           !grepl("Extended Induction Program", program)
-         # & !grepl("PREPARATORY", toupper(program))
-         )
-
-IC <- read.csv(IC_File, stringsAsFactors = FALSE)
-KSS <- left_join(KSS, IC)
-
+# Pull in nationality mapping tables
 NationalityMapping <- read.xlsx(NationalityMapping_File, sheetIndex = 1, startRow = 1, stringsAsFactors = FALSE)
 NationalityMapping$CPE[NationalityMapping$Nav == "NORTH KOREAN"] <- "DEMOCRATIC PEOPLE'S REPUBLIC OF KOREA"
 NationalityMapping$CPE[NationalityMapping$Nav == "LAOTIAN"] <- "LAO PEOPLE'S DEMOCRATIC REPUBLIC"
 
-# utility function - give it a vector and returns a function to search that vector
-find_in_vector <- function(vec) { function(find) { any(find == vec) } }
-
-# utility function - check pick a parameter based on Full Time or Part Time
-KHEA_or_KHEI <- function(courseStruct) {
-  if (!(courseStruct %in% c("Full Time", "Part Time"))) {
-    stop("Course Structure must be set as Full Time or Part Time.")
-  }
-  if (courseStruct == "Full Time") {
-    "KHEA"
-  } else {
-    "KHEI"
-  }
-}
+# read in the data files and do any data cleaning
+# the IC detail is currently mastered from 3 locations
+IC <- read.csv(IC_File, stringsAsFactors = FALSE)
+KSS <- read.csv(Intake_Rep_File, na.strings = "", stringsAsFactors = FALSE) %>%
+  left_join(IC) %>%
+  # because we don't want any pre-enrolment status anywhere in our counting
+  filter(!studentStatus %in% c("Accepted"
+                             , "Applicant"
+                             , "Application Approved"
+                             , "Application Deferred"
+                             , "Application Withdrawn"
+                             , "Application Rejected"
+                             , "Admission Assessment Complete"
+                             , "Submission to Admissions Office"
+                             , "Admission Assessment in Progress"
+                             , "Error Entry"))
 
 B11_Subset <- function(courseStruct){
   # Create the various sets
-  B11 <- filter(KSS, studentStatus %in% c("Graduated", "Course Ended") &
-                     year(as.Date(KSS$statusDate)) == CurrentYear &
-                     year(as.Date(KSS$intakeStartDate)) < CurrentYear &
-                     organisation == courseStruct)
+  KSS_Active <- filter(KSS, studentStatus == "Active" &
+                       year(as.Date(KSS$intakeStartDate)) <= currentYear)
+  KSS_Grads <- filter(KSS, studentStatus %in% c("Graduated", "Course Ended") &
+                  year(as.Date(KSS$statusDate)) == currentYear &
+                  year(as.Date(KSS$intakeStartDate)) <= currentYear)
+  KSS_Other <- filter(KSS, year(as.Date(KSS$intakeStartDate)) == currentYear &
+                      !studentStatus %in% c("Active", "Graduated", "Course Ended"))
+  # A local function to recombine the sets by FT/PT or Online in future
+  ReCombine <- function(A, G, O, Org) {
+    rbind(A, G, O) %>%
+      filter(organisation == Org)
+  }
+  
+  # put together the required records
+  B11 <- ReCombine(KSS_Active, KSS_Grads, KSS_Other, courseStruct)
   # Find and keep only the latest admission 
   # for students with multiple admissions on the same program 
   LA <- setkey(data.table(B11), contactId, program)
@@ -120,7 +113,7 @@ B11_Academic <- function(courseStruct) {
 # Function to map Nationalities
 mapNationalities <- function(Nat) {
   n <- NationalityMapping$CPE[NationalityMapping$Nav == Nat]
-  ifelse(length(n) > 0, n, paste("Unauthorised", Nat))
+  ifelse(length(n) > 0, n, paste("Incorrect Label", Nat))
 }
 
 # Function to map identity and pass types to CPE values
@@ -193,7 +186,12 @@ B11_Financial <- function(courseStruct) {
 
 # compute new columns from above functions then return the required columns arranged in the right order
 B11_Prep <- function(B11) {
- B11 %>% mutate(Nationality = sapply(nationality, mapNationalities)
+ B11 %>% 
+    # remove a few programs we know we're not interested in
+    filter(!program %in% c("Study Tour", "English Experience Program", "Degree Experience Program") &
+                  !grepl("Extended Induction Program", program)) %>%
+    # calculate all the required columns and mappings
+    mutate(Nationality = sapply(nationality, mapNationalities)
                 , IdentityPassType = sapply(identificationType, MapIdentityPassType)
                 , nric_or_fin = ifelse(IdentityPassType == "SINGAPORE PR", nric
                                        , ifelse(NRIC_FIN !="", NRIC_FIN, nric))
@@ -217,22 +215,23 @@ B11_Prep <- function(B11) {
                 , Calculated_End_Date = ifelse(studentStatusCPE == "EXISTING" &
                                                  month(LatestStudiesEndDate) >= 10 & 
                                                  month(LatestStudiesEndDate) <= 12 & 
-                                                 year(LatestStudiesEndDate) == CurrentYear
-                                               , paste0(as.character(CurrentYear + 1), "-01-31"), LatestStudiesEndDate)
+                                                 year(LatestStudiesEndDate) == currentYear
+                                               , paste0(as.character(currentYear + 1), "-01-31"), LatestStudiesEndDate)
                 , ExpectedDateOfQualification = format(as.Date(Calculated_End_Date), "%m/%Y")
                 ) %>%
-              select(contactId
-                   , navisionCode
-                   , SalesOrder
-                   , name
-                   , nric_or_fin, Nationality
-                   , IdentityPassType, gender
-                   , DateOfBirth, highestQualification
-                   , Org, Permitted_Course_Title
-                   , TitleOfModule, ModeOfDelivery
-                   , Fee, CommencementDate
-                   , studentStatusCPE
-                   , ExpectedDateOfQualification)
+    # return only the required columns
+    select(contactId
+         , navisionCode
+         , SalesOrder
+         , name
+         , nric_or_fin, Nationality
+         , IdentityPassType, gender
+         , DateOfBirth, highestQualification
+         , Org, Permitted_Course_Title
+         , TitleOfModule, ModeOfDelivery
+         , Fee, CommencementDate
+         , studentStatusCPE
+         , ExpectedDateOfQualification)
 }
 
 # Execute all the above processing functions
@@ -244,13 +243,12 @@ B11_Generate <- function(courseStruct) {
 
 # Waivers Report
 Waivers <- read.csv(Waivers_File, stringsAsFactors = FALSE)
-KSS2 <- read.csv(Intake_Rep_File, na.strings = "", stringsAsFactors = FALSE)
 
-find_in_KSS.contactId <- find_in_vector(KSS2$contactId)
+find_in_KSS.contactId <- find_in_vector(KSS$contactId)
 
 find_idType <- function(CT) {
   if (find_in_KSS.contactId(CT)) {
-    k <- KSS2[KSS2$contactId == CT, c("applicationId", "identificationType") ]
+    k <- KSS[KSS$contactId == CT, c("applicationId", "identificationType") ]
     if (nrow(k) > 1) {
       k <- unique(k[k$applicationId == max(k$applicationId),])
     }
@@ -262,8 +260,11 @@ find_idType <- function(CT) {
 B11_Waivers <- function(courseStruct) {
   
   WV <- Waivers %>% 
-    mutate(identificationType = sapply(Waivers$contactId, find_idType)) %>%
-    filter(!(identificationType == "KSS Not Found") & CourseStructure == courseStruct) %>%
+    filter(endDate >= as.Date(paste0(currentYear, "-01-01")) &
+             startDate <= as.Date(paste0(currentYear, "-12-15"))) %>%
+    mutate(identificationType = sapply(contactId, find_idType)) %>%
+    filter(!(identificationType == "KSS Not Found") & 
+             CourseStructure == courseStruct) %>%
     mutate(Nationality = sapply(nationality, mapNationalities)
            , IdentityPassType = sapply(identificationType, MapIdentityPassType))
   
@@ -287,3 +288,79 @@ B11_Waivers <- function(courseStruct) {
   
   WaiverReport
 }
+
+# Edutrust Report doubles up as generic snapshot stats of Active Students
+Edutrust_Stats <- function(B11, prevYears) {
+  
+  studyYear <- function(yr, startDate, endDate) {
+    ifelse(year(as.Date(endDate)) >= yr &
+             year(as.Date(startDate)) <= yr, TRUE, FALSE)
+  }
+  
+  # start again with the full set as we're calculating previous year stats
+  PY <- KSS %>% filter(organisation == courseStruct) %>%
+    mutate(latestKnownEndDate = apply(cbind(intakeEndDate
+                                            , latestTermEndDate)
+                                      , 1, max))
+           
+  calculateStudyYears <- function(df, startDateCol, endDateCol, prevYears) {
+    newCols <- c(names(df), paste0("studyYear", prevYears))
+    for (yr in prevYears) {
+      studyYear(yr, df[[startDateCol]], df[[endDateCol]])
+      df <- cbind(df, studyYear(yr, df[[startDateCol]], df[[endDateCol]])) 
+    }
+    names(df) <- newCols
+    df
+  }
+  
+  PY <- calculateStudyYears(PY, "intakeStartDate", "latestKnownEndDate", prevYears)
+  PY_WV <- calculateStudyYears(Waivers, "startDate", "endDate", prevYears)
+
+  PastStudents <- as.data.frame(rbind(
+    sapply(select(PY, starts_with("studyYear")), sum)
+    , sapply(select(PY_WV, starts_with("studyYear")), sum)))
+  PastStudents <- rbind(PastStudents
+                        , apply(PastStudents, 2, sum))
+  rownames(PastStudents) <- c("permitted", "short", "total")
+
+  # here we only want current, active student stats 
+  ET <- filter(B11, studentStatusCPE == "EXISTING")
+  
+  PassTypeStatsRaw <- sort(table(ET$IdentityPassType)
+                           , decreasing = TRUE)
+  PassTypeStats <- data.frame("NumberOfStudents" = PassTypeStatsRaw)
+  
+  CourseStatsRaw <- sort(table(ET$Permitted_Course_Title)
+                         , decreasing = TRUE)
+  CourseStats <- data.frame("CourseTitle" = names(CourseStatsRaw)
+                            , "NumberOfStudents" = CourseStatsRaw) %>%
+    mutate("PercentOfStudents" = round(
+      NumberOfStudents/nrow(ET)*100
+      , 2)
+    )
+  
+  NationalityStatsRaw <- sort(table(ET$Nationality)
+                              , decreasing = TRUE)
+  NationalityStats <- data.frame("Nationality" = names(NationalityStatsRaw)
+                                 , "NumberOfStudents" = NationalityStatsRaw) %>%
+    mutate("PercentOfStudents" = round(
+      NumberOfStudents/nrow(ET)*100
+      , 2)
+    )
+  
+  list(PastStudents = PastStudents
+      , PassTypeStats = PassTypeStats
+      , CourseStats = CourseStats
+      , NationalityStats = NationalityStats
+      , CurrentYearData = ET
+      , PreviousYearData = PY
+      , PreviousYearsWaiverData = PY_WV)
+}
+
+Edutrust_Prep <- function(prevYears) {
+  function(courseStruct) {
+    B11_Generate(courseStruct) %>% Edutrust_Stats(prevYears = prevYears)
+  }
+}
+
+Edutrust_Generate <- Edutrust_Prep(prevYears)
