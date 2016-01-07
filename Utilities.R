@@ -32,14 +32,11 @@ Run_report <- function(courseStruct, report, reportFunc) {
   assign(legalName(courseStruct, report), reportFunc(courseStruct))
 }
 
-Run_and_save <- function(courseStruct, report, reportFunc) {
+Save_report <- function(results, courseStruct, report) {
   # dynamically generate the file names
   outputFile <- pathTo(legalName(courseStruct, paste0(report, ".csv")))
   fileInit(legalName(courseStruct, outputFile))
-
-  # dynamically assign the variable name before generating the data
-  report <- Run_report(courseStruct, report, reportFunc)
-  write.csv(report
+  write.csv(results
           , outputFile
           , row.names = FALSE)
 }

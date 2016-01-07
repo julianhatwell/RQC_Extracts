@@ -185,60 +185,75 @@ B11_Financial <- function(courseStruct) {
 }
 
 # compute new columns from above functions then return the required columns arranged in the right order
-B11_Prep <- function(B11) {
- B11 %>% 
-    # remove a few programs we know we're not interested in
-    filter(!program %in% c("Study Tour", "English Experience Program", "Degree Experience Program") &
-                  !grepl("Extended Induction Program", program)) %>%
-    # calculate all the required columns and mappings
-    mutate(Nationality = sapply(nationality, mapNationalities)
-                , IdentityPassType = sapply(identificationType, MapIdentityPassType)
-                , nric_or_fin = ifelse(IdentityPassType == "SINGAPORE PR", nric
-                                       , ifelse(NRIC_FIN !="", NRIC_FIN, nric))
-                , DateOfBirth = format(as.Date(dob), "%d/%m/%Y")
-                , Org = sub(" ", "-", organisation)
-                , Permitted_Course_Title = mapply(FUN = MapCourseTitles, ct = program, prtn = partner)     
-                , TitleOfModule = ""
-                , ModeOfDelivery = "Classroom Learning"
-                , SalesOrder = mapply(FUN = FindDoc, Std = contactId, Nav = navisionCode) # Needs Nav Intake Codes
-                , Fee = mapply(FUN = FindFee, Std = contactId, Doc = SalesOrder)
-                , CommencementDate = format(as.Date(intakeStartDate), "%m/%Y")
-                , studentStatusCPE = sapply(studentStatus, MapStatusCPE)
-                # The next set of columns will all serve to calculate the reportable end date
-                # I have separated it into steps for readability/maintainability
-                , latestTermEndDate = ifelse(is.na(latestTermEndDate) | latestTermEndDate == "0000-00-00"
-                                             , "1970-01-01", latestTermEndDate)
-                , ExpectedGradDate = ifelse(studentStatus %in% c("Graduated", "Course Ended")
-                                                      , statusDate, intakeEndDate)
-                , LatestStudiesEndDate = ifelse(as.Date(ExpectedGradDate) >= as.Date(latestTermEndDate)
-                                           , ExpectedGradDate, latestTermEndDate)
-                , Calculated_End_Date = ifelse(studentStatusCPE == "EXISTING" &
-                                                 month(LatestStudiesEndDate) >= 10 & 
-                                                 month(LatestStudiesEndDate) <= 12 & 
-                                                 year(LatestStudiesEndDate) == currentYear
-                                               , paste0(as.character(currentYear + 1), "-01-31"), LatestStudiesEndDate)
-                , ExpectedDateOfQualification = format(as.Date(Calculated_End_Date), "%m/%Y")
-                ) %>%
-    # return only the required columns
+B11_Prep <- function(B11, financial = TRUE) {
+  B11 <- B11 %>% mutate(Nationality = sapply(nationality, mapNationalities)
+                 , IdentityPassType = sapply(identificationType, MapIdentityPassType)
+                 , nric_or_fin = ifelse(IdentityPassType == "SINGAPORE PR", nric
+                                        , ifelse(NRIC_FIN !="", NRIC_FIN, nric))
+                 , DateOfBirth = format(as.Date(dob), "%d/%m/%Y")
+                 , Org = sub(" ", "-", organisation)
+                 , Permitted_Course_Title = mapply(FUN = MapCourseTitles, ct = program, prtn = partner)     
+                 , TitleOfModule = ""
+                 , ModeOfDelivery = "Classroom Learning"
+                 , CommencementDate = format(as.Date(intakeStartDate), "%m/%Y")
+                 , studentStatusCPE = sapply(studentStatus, MapStatusCPE)
+                 # The next set of columns will all serve to calculate the reportable end date
+                 # I have separated it into steps for readability/maintainability
+                 , latestTermEndDate = ifelse(is.na(latestTermEndDate) | latestTermEndDate == "0000-00-00"
+                                              , "1970-01-01", latestTermEndDate)
+                 , ExpectedGradDate = ifelse(studentStatus %in% c("Graduated", "Course Ended")
+                                             , statusDate, intakeEndDate)
+                 , LatestStudiesEndDate = ifelse(as.Date(ExpectedGradDate) >= as.Date(latestTermEndDate)
+                                                 , ExpectedGradDate, latestTermEndDate)
+                 , Calculated_End_Date = ifelse(studentStatusCPE == "EXISTING" &
+                                                  month(LatestStudiesEndDate) >= 10 & 
+                                                  month(LatestStudiesEndDate) <= 12 & 
+                                                  year(LatestStudiesEndDate) == currentYear
+                                                , paste0(as.character(currentYear + 1), "-01-31"), LatestStudiesEndDate)
+                 , ExpectedDateOfQualification = format(as.Date(Calculated_End_Date), "%m/%Y")
+  ) %>%
     select(contactId
-         , navisionCode
-         , SalesOrder
-         , name
-         , nric_or_fin, Nationality
-         , IdentityPassType, gender
-         , DateOfBirth, highestQualification
-         , Org, Permitted_Course_Title
-         , TitleOfModule, ModeOfDelivery
-         , Fee, CommencementDate
-         , studentStatusCPE
-         , ExpectedDateOfQualification)
+           , navisionCode
+           , name
+           , nric_or_fin, Nationality
+           , IdentityPassType, gender
+           , DateOfBirth, highestQualification
+           , Org, Permitted_Course_Title
+           , TitleOfModule, ModeOfDelivery
+           , CommencementDate
+           , studentStatusCPE
+           , ExpectedDateOfQualification)
+  
+  # because it takes so long to search for the sales order and fee detail
+  # I have separated this out into a second step, with a conditional switch.
+  # It will run by default
+    if (financial) {
+      B11 <- B11 %>%
+    mutate(SalesOrder = mapply(FUN = FindDoc, Std = contactId, Nav = navisionCode) # Needs Nav Intake Codes
+          , Fee = mapply(FUN = FindFee, Std = contactId, Doc = SalesOrder)
+    ) %>%
+    select(contactId
+           , navisionCode
+           , SalesOrder
+           , name
+           , nric_or_fin, Nationality
+           , IdentityPassType, gender
+           , DateOfBirth, highestQualification
+           , Org, Permitted_Course_Title
+           , TitleOfModule, ModeOfDelivery
+           , Fee
+           , CommencementDate
+           , studentStatusCPE
+           , ExpectedDateOfQualification)
+    }
+  B11
 }
 
 # Execute all the above processing functions
-B11_Generate <- function(courseStruct) {
+B11_Generate <- function(courseStruct, financial = TRUE) {
   B11_Academic(courseStruct)
   B11_Financial(courseStruct)
-  B11_Subset(courseStruct) %>% B11_Prep
+  B11_Subset(courseStruct) %>% B11_Prep(financial = financial)
 }
 
 # Waivers Report
@@ -289,7 +304,7 @@ B11_Waivers <- function(courseStruct) {
   WaiverReport
 }
 
-# Edutrust Report doubles up as generic snapshot stats of Active Students
+# Edutrust Report - doubles up as generic snapshot stats of Active Students
 Edutrust_Stats <- function(B11, prevYears) {
   
   studyYear <- function(yr, startDate, endDate) {
@@ -297,13 +312,7 @@ Edutrust_Stats <- function(B11, prevYears) {
              year(as.Date(startDate)) <= yr, TRUE, FALSE)
   }
   
-  # start again with the full set as we're calculating previous year stats
-  PY <- KSS %>% filter(organisation == courseStruct) %>%
-    mutate(latestKnownEndDate = apply(cbind(intakeEndDate
-                                            , latestTermEndDate)
-                                      , 1, max))
-           
-  calculateStudyYears <- function(df, startDateCol, endDateCol, prevYears) {
+  deriveStudyYears <- function(df, startDateCol, endDateCol, prevYears) {
     newCols <- c(names(df), paste0("studyYear", prevYears))
     for (yr in prevYears) {
       studyYear(yr, df[[startDateCol]], df[[endDateCol]])
@@ -313,12 +322,28 @@ Edutrust_Stats <- function(B11, prevYears) {
     df
   }
   
-  PY <- calculateStudyYears(PY, "intakeStartDate", "latestKnownEndDate", prevYears)
-  PY_WV <- calculateStudyYears(Waivers, "startDate", "endDate", prevYears)
+  countUnqStudentsByYear <- function(df) {
+    df <- unique(select(df, contactId, program, starts_with("studyYear")))
+    df <- sapply(select(df, starts_with("studyYear")), sum)
+    df
+  }
+  
+  # start again with the full set as we're calculating previous year stats
+  PY <- KSS %>% filter(organisation == courseStruct) %>%
+    mutate(latestKnownEndDate = apply(cbind(intakeEndDate
+                                            , latestTermEndDate)
+                                      , 1, max)) %>%
+    deriveStudyYears("intakeStartDate", "latestKnownEndDate", prevYears)
+  
+  PY_WV <- Waivers %>% 
+    # add a dummy column
+    mutate(program = "") %>%
+    deriveStudyYears("startDate", "endDate", prevYears)
 
   PastStudents <- as.data.frame(rbind(
-    sapply(select(PY, starts_with("studyYear")), sum)
-    , sapply(select(PY_WV, starts_with("studyYear")), sum)))
+    countUnqStudentsByYear(PY)
+    , countUnqStudentsByYear(PY_WV)))
+  # add a totals row
   PastStudents <- rbind(PastStudents
                         , apply(PastStudents, 2, sum))
   rownames(PastStudents) <- c("permitted", "short", "total")
@@ -352,14 +377,14 @@ Edutrust_Stats <- function(B11, prevYears) {
       , PassTypeStats = PassTypeStats
       , CourseStats = CourseStats
       , NationalityStats = NationalityStats
-      , CurrentYearData = ET
+      , currentYearData = ET
       , PreviousYearData = PY
       , PreviousYearsWaiverData = PY_WV)
 }
 
 Edutrust_Prep <- function(prevYears) {
   function(courseStruct) {
-    B11_Generate(courseStruct) %>% Edutrust_Stats(prevYears = prevYears)
+    B11_Generate(courseStruct, financial = FALSE) %>% Edutrust_Stats(prevYears = prevYears)
   }
 }
 

@@ -12,17 +12,17 @@ source(paste0(fileLoc, "Utilities.R"))
 thisReport <- "Annual_Report"
 thisReport2 <- "Waiver_Report"
 currentYear <- 2015
-courseStruct <- c("Full Time", "Part Time")
+courseStruct <- "Full Time"
 
 # Locate and run source file
 source(pathTo("RQC_Report_Functions.R"))
 
 # Run the code, initialise the output files and save
 # Separately for FT and PT
-for (cs in courseStruct) {
-  Run_and_save(cs, thisReport, B11_Generate)
-  Run_and_save(cs, thisReport2, B11_Waivers)
-}
+  AR <- Run_report(courseStruct, thisReport, B11_Generate)
+  Save_report(AR, courseStruct, thisReport)
+  AW <- Run_report(courseStruct, thisReport2, B11_Waivers)
+  Save_report(AW, courseStruct, thisReport2)
 
 # Manual versions!
 # FT <- B11_Generate("Full Time")

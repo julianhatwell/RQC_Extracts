@@ -12,15 +12,14 @@ source(paste0(fileLoc, "Utilities.R"))
 thisReport <- "Edutrust"
 currentYear <- 2015
 prevYears <- c(2012, 2013, 2014, 2015)
-courseStruct <- c("Full Time", "Part Time")
+courseStruct <- "Part Time"
 
 # Locate and run source file
 source(pathTo("RQC_Report_Functions.R"))
 
 # Run the code. 
 # The file save requirements are more complex than the annual report
-for (cs in courseStruct) {
-  ET <- Run_report(cs, thisReport, Edutrust_Generate)
+  ET <- Run_report(courseStruct, thisReport, Edutrust_Generate)
 
   # initialise the output files
   Master_File <- pathTo(legalName(courseStruct, "Edutrust.xlsx"))
@@ -52,7 +51,7 @@ for (cs in courseStruct) {
              , append = TRUE)
   
   # Raw Data for validation
-  write.csv(ET$CurrentYearData
+  write.csv(ET$currentYearData
              , CurrYearData_File
              , row.names = FALSE)
   write.csv(ET$PreviousYearData
@@ -61,4 +60,3 @@ for (cs in courseStruct) {
   write.csv(ET$PreviousYearsWaiverData
             , PrevYearWaiverData_File
             , row.names = FALSE)
-}
