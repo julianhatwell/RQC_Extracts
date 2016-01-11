@@ -307,24 +307,26 @@ B11_Waivers <- function(courseStruct) {
 # Edutrust Report - doubles up as generic snapshot stats of Active Students
 Edutrust_Stats <- function(B11, prevYears) {
   
-  studyYear <- function(yr, startDate, endDate) {
-    ifelse(year(as.Date(endDate)) >= yr &
-             year(as.Date(startDate)) <= yr, TRUE, FALSE)
-  }
-  
-  deriveStudyYears <- function(df, startDateCol, endDateCol, prevYears) {
-    newCols <- c(names(df), paste0("studyYear", prevYears))
-    for (yr in prevYears) {
-      studyYear(yr, df[[startDateCol]], df[[endDateCol]])
-      df <- cbind(df, studyYear(yr, df[[startDateCol]], df[[endDateCol]])) 
+  pivotYearEnrolled <- function(df, startDateCol, prevYears) {
+    # vector of the new column names added to the existing df col names
+    newColNames <- c(names(df), paste0("yearEnrolled", prevYears))
+    
+    # inner function to create logical vectors per year
+    yearEnrolled <- function(yr, startDate) {
+      ifelse(year(as.Date(startDate)) == yr, TRUE, FALSE)
     }
-    names(df) <- newCols
-    df
+    # cycle the df and previous years vector through the inner function
+    for (yr in prevYears) {
+      df <- cbind(df, yearEnrolled(yr, df[[startDateCol]])) 
+    }
+    # update the new column names
+    names(df) <- newColNames
+    return(df)
   }
   
   countUnqStudentsByYear <- function(df) {
-    df <- unique(select(df, contactId, program, starts_with("studyYear")))
-    df <- sapply(select(df, starts_with("studyYear")), sum)
+    df <- unique(select(df, contactId, program, starts_with("yearEnrolled")))
+    df <- sapply(select(df, starts_with("yearEnrolled")), sum)
     df
   }
   
@@ -333,12 +335,12 @@ Edutrust_Stats <- function(B11, prevYears) {
     mutate(latestKnownEndDate = apply(cbind(intakeEndDate
                                             , latestTermEndDate)
                                       , 1, max)) %>%
-    deriveStudyYears("intakeStartDate", "latestKnownEndDate", prevYears)
+    pivotYearEnrolled("intakeStartDate", prevYears)
   
   PY_WV <- Waivers %>% 
     # add a dummy column
     mutate(program = "") %>%
-    deriveStudyYears("startDate", "endDate", prevYears)
+    pivotYearEnrolled("startDate", prevYears)
 
   PastStudents <- as.data.frame(rbind(
     countUnqStudentsByYear(PY)
