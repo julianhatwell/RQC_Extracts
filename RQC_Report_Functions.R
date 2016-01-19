@@ -112,7 +112,7 @@ B11_Academic <- function(courseStruct) {
 
 # Function to map Nationalities
 mapNationalities <- function(Nat) {
-  n <- NationalityMapping$CPE[NationalityMapping$Nav == Nat]
+  n <- NationalityMapping$CPE[NationalityMapping$Nav == toupper(Nat)]
   ifelse(length(n) > 0, n, paste("Incorrect Label", Nat))
 }
 
@@ -304,6 +304,36 @@ B11_Waivers <- function(courseStruct) {
   WaiverReport
 }
 
+# For generating official stats to use in other lists
+Official_Stats <- function(Active.Students) {
+  PassTypeStatsRaw <- sort(table(Active.Students$IdentityPassType)
+                           , decreasing = TRUE)
+  PassTypeStats <- data.frame("NumberOfStudents" = PassTypeStatsRaw)
+  
+  CourseStatsRaw <- sort(table(Active.Students$Permitted_Course_Title)
+                         , decreasing = TRUE)
+  CourseStats <- data.frame("CourseTitle" = names(CourseStatsRaw)
+                            , "NumberOfStudents" = CourseStatsRaw) %>%
+    mutate("PercentOfStudents" = round(
+      NumberOfStudents/nrow(Active.Students)*100
+      , 2)
+    )
+  
+  NationalityStatsRaw <- sort(table(Active.Students$Nationality)
+                              , decreasing = TRUE)
+  NationalityStats <- data.frame("Nationality" = names(NationalityStatsRaw)
+                                 , "NumberOfStudents" = NationalityStatsRaw) %>%
+    mutate("PercentOfStudents" = round(
+      NumberOfStudents/nrow(Active.Students)*100
+      , 2)
+    )
+  
+  return(list(PassTypeStats = PassTypeStats
+       , CourseStats = CourseStats
+       , NationalityStats = NationalityStats
+       , currentYearData = Active.Students))
+}
+
 # Edutrust Report - doubles up as generic snapshot stats of Active Students
 Edutrust_Stats <- function(B11, prevYears) {
   
@@ -353,36 +383,12 @@ Edutrust_Stats <- function(B11, prevYears) {
   # here we only want current, active student stats 
   ET <- filter(B11, studentStatusCPE == "EXISTING")
   
-  PassTypeStatsRaw <- sort(table(ET$IdentityPassType)
-                           , decreasing = TRUE)
-  PassTypeStats <- data.frame("NumberOfStudents" = PassTypeStatsRaw)
-  
-  CourseStatsRaw <- sort(table(ET$Permitted_Course_Title)
-                         , decreasing = TRUE)
-  CourseStats <- data.frame("CourseTitle" = names(CourseStatsRaw)
-                            , "NumberOfStudents" = CourseStatsRaw) %>%
-    mutate("PercentOfStudents" = round(
-      NumberOfStudents/nrow(ET)*100
-      , 2)
-    )
-  
-  NationalityStatsRaw <- sort(table(ET$Nationality)
-                              , decreasing = TRUE)
-  NationalityStats <- data.frame("Nationality" = names(NationalityStatsRaw)
-                                 , "NumberOfStudents" = NationalityStatsRaw) %>%
-    mutate("PercentOfStudents" = round(
-      NumberOfStudents/nrow(ET)*100
-      , 2)
-    )
-  
-  list(PastStudents = PastStudents
-      , PassTypeStats = PassTypeStats
-      , CourseStats = CourseStats
-      , NationalityStats = NationalityStats
-      , currentYearData = ET
-      , PreviousYearData = PY
-      , PreviousYearsWaiverData = PY_WV)
-}
+  return(list(CurrentYear <- Official_Stats(ET)
+              , PastStudents = PastStudents
+              , PreviousYearData = PY
+              , PreviousYearsWaiverData = PY_WV)
+         )
+  }
 
 Edutrust_Prep <- function(prevYears) {
   function(courseStruct) {
@@ -391,3 +397,74 @@ Edutrust_Prep <- function(prevYears) {
 }
 
 Edutrust_Generate <- Edutrust_Prep(prevYears)
+
+
+# This newer routine gets the Edutrust quality counts and stats
+# Based on the FPS / F1 file(s)
+
+Edutrust_FPS_Stats <- function() {
+  # read the prepped F1 files
+  FPS_A <- read.csv(FPS_A_File, stringsAsFactors = FALSE)
+  FPS_D <- read.csv(FPS_D_File, stringsAsFactors = FALSE)
+  # clean up some column names
+  names(FPS_A)[names(FPS_A) == "KAPLANREF."] <- "KAPLAN.REF"
+  names(FPS_D)[names(FPS_D) == "KAPLAN.REF."] <- "KAPLAN.REF"
+  
+  FPS_Prepare <- function(FPS, Origin) {
+    return(
+      FPS %>% 
+        mutate(Origin = Origin
+               , STUDENT_NAME = toupper(STUDENT_NAME)
+               , COURSE.TITLE = toupper(COURSE.TITLE)) %>%
+        select(Origin
+               , KAPLAN.REF
+               , NATIONALITY
+               , STUDENT_NAME
+               , NRIC_FIN_NO
+               , COURSE.TITLE
+               , COURSE.START.DATE
+               , COURSE.END.DATE
+               , COURSE.DURATION..MONTH.)
+    )
+  }
+  
+  FPS_A <- FPS_Prepare(FPS_A, "FPS_Active")
+  FPS_D <- FPS_Prepare(FPS_D, "FPS_Deleted")
+  FPS_All <- rbind(FPS_A, FPS_D)
+  
+  # dedupe algoirithm - group by KAPLAN.REF
+  # 1. Take the STUDENT_NAME from the oldest row
+  # 2. Take the COURSE.TITLE from the oldest row
+  # 3. Take min of start dates from all rows
+  # 3. Take max of end dates from all rows
+  FPS_dt <- setkey(data.table(FPS_All), KAPLAN.REF)
+  FPS_dedupe <- FPS_dt[, .SD[1]
+                       , by = KAPLAN.REF][Origin=="FPS_Active"
+                                          ,.(KAPLAN.REF
+                                             , STUDENT_NAME
+                                             , NRIC_FIN_NO
+                                             , NATIONALITY
+                                             , COURSE.TITLE)]
+  FPS_dedupe_Dates <- unique(FPS_dt[
+    ,.(Origin
+       , KAPLAN.REF
+       , COURSE.START.DATE = min(COURSE.START.DATE)
+       , COURSE.END.DATE = max(COURSE.END.DATE))
+    , by = KAPLAN.REF][Origin=="FPS_Active"
+                       ,.(KAPLAN.REF
+                          , COURSE.START.DATE
+                          , COURSE.END.DATE)])
+  # join the pieces back together and touch up the column names
+  FPS_dedupe <- FPS_dedupe %>% 
+    inner_join(FPS_dedupe_Dates) %>%
+    mutate(identificationType = sapply(KAPLAN.REF, find_idType)
+           , IdentityPassType = sapply(identificationType
+                                       , MapIdentityPassType)) %>%
+    rename(Nationality = NATIONALITY
+           , Permitted_Course_Title = COURSE.TITLE) %>%
+    select(-identificationType)
+  
+  return(Official_Stats(FPS_dedupe))
+  
+  
+}
