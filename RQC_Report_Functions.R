@@ -454,6 +454,7 @@ Edutrust_FPS_Stats <- function() {
                        ,.(KAPLAN.REF
                           , COURSE.START.DATE
                           , COURSE.END.DATE)])
+
   # join the pieces back together and touch up the column names
   FPS_dedupe <- FPS_dedupe %>% 
     inner_join(FPS_dedupe_Dates) %>%
@@ -463,6 +464,42 @@ Edutrust_FPS_Stats <- function() {
     rename(Nationality = NATIONALITY
            , Permitted_Course_Title = COURSE.TITLE) %>%
     select(-identificationType)
+  
+  # load the corrections file - keep only rows with corrections
+  FPS_C <- read.csv(FPS_C_File, stringsAsFactors = FALSE) %>%
+    filter(STP.OTHER.SCHOOL != "" |
+            REMARKS != "" |
+            SINDA != "" |
+            Missing.Pass.Type != "" |
+            ACTIONS != ""
+           )
+  FPS_C$IdentityPassType <- ifelse(FPS_C$Missing.Pass.Type != ""
+                                   , FPS_C$Missing.Pass.Type
+                                   , FPS_C$IdentityPassType)
+  # add the extra columns empty for now
+  FPS_dedupe <- cbind(FPS_dedupe
+                      , STP.OTHER.SCHOOL = ""
+                      , REMARKS = ""
+                      , SINDA = ""
+                      )
+  # apply all the corrections
+  for (KR in FPS_C$KAPLAN.REF) {
+    if (FPS_C[FPS_C$KAPLAN.REF == KR, "Missing.Pass.Type"] != "") {
+      FPS_dedupe[FPS_dedupe$KAPLAN.REF == KR, "IdentityPassType"] <- FPS_C[FPS_C$KAPLAN.REF == KR, "Missing.Pass.Type"]
+    }
+    if (FPS_C[FPS_C$KAPLAN.REF == KR, "REMARKS"] != "") {
+      FPS_dedupe[FPS_dedupe$KAPLAN.REF == KR, "REMARKS"] <- FPS_C[FPS_C$KAPLAN.REF == KR, "REMARKS"]
+    }
+    if (FPS_C[FPS_C$KAPLAN.REF == KR, "STP.OTHER.SCHOOL"] != "") {
+      FPS_dedupe[FPS_dedupe$KAPLAN.REF == KR, "STP.OTHER.SCHOOL"] <- FPS_C[FPS_C$KAPLAN.REF == KR, "STP.OTHER.SCHOOL"]
+    }
+    if (FPS_C[FPS_C$KAPLAN.REF == KR, "ACTIONS"] == "ADD") {
+      FPS_dedupe <- rbind(FPS_dedupe, FPS_C[FPS_C$KAPLAN.REF == KR, 1:11])
+    }
+    if (FPS_C[FPS_C$KAPLAN.REF == KR, "ACTIONS"] == "DELETE") {
+      FPS_dedupe <- FPS_dedupe[FPS_dedupe$KAPLAN.REF != KR,]
+    }
+  }   
   
   return(Official_Stats(FPS_dedupe))
   

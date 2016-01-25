@@ -16,6 +16,7 @@ courseStruct <- "Part Time"
 
 FPS_A_File <- pathTo("FPS_140116_Active.csv")
 FPS_D_File <- pathTo("FPS_140116_Deletions.csv")
+FPS_C_File <- pathTo("FPS_200116_Corrections_2.csv")
 
 FPS_Submission <- Edutrust_FPS_Stats()
 
